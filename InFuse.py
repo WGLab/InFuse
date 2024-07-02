@@ -2,6 +2,7 @@ import os, argparse, sys
 import time
 from src import post_process
 import pickle
+import pandas as pd
 
 if __name__=="__main__":
     t=time.time()
@@ -23,7 +24,7 @@ if __name__=="__main__":
                                       help="Detect gene fusions and novel isoforms from BAM file.",  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
     detect_required=detect_parser.add_argument_group("Required Arguments")
-    detect_parser.add_argument("--bam", help='Path to aligned BAM file.', type=str, required=True)
+    detect_parser.add_argument("--bam", help='Path to aligned BAM file sorted by name.', type=str, required=True)
     detect_parser.add_argument("--check_strand", help='Check strand orientation of reads using ply A tail and primers', default=False, action='store_true')
     detect_parser.add_argument("--threads", help='Number of threads', type=int, default=4)
     detect_parser.add_argument("--gf_only", help='Check gene fusions only', default=False, action='store_true')
@@ -64,12 +65,12 @@ if __name__=="__main__":
         
     final_gf_double_bp, final_gf_single_bp=post_process.get_GFs(output, gene_id_to_name, args.distance_threshold, args.min_support)
     
-    with open(os.path.join(output_path,args.prefix+'final_gf_double_bp.pickle'), 'wb') as handle:
+    with open(os.path.join(output_path,args.prefix+'.final_gf_double_bp.pickle'), 'wb') as handle:
         pickle.dump(final_gf_double_bp, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    with open(os.path.join(output_path,args.prefix+'final_gf_single_bp.pickle'), 'wb') as handle:
+    with open(os.path.join(output_path,args.prefix+'.final_gf_single_bp.pickle'), 'wb') as handle:
         pickle.dump(final_gf_single_bp, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    with open(os.path.join(output_path,'final_gf_double_bp'), 'w') as ann_file, open(os.path.join(output_path,'final_gf_double_bp.inconsistent'), 'w') as incon_file:
+    with open(os.path.join(output_path,'.final_gf_double_bp'), 'w') as ann_file, open(os.path.join(output_path,'.final_gf_double_bp.inconsistent'), 'w') as incon_file:
         for k,v in sorted(final_gf_double_bp.items(), key=lambda x: x[1]['read_support'], reverse=True):
             if v['consistent']:
                 ann_file.write("{}::{} Support={} {}:{}({}bp, {}q, {}bp, {}) {}:{}({}bp, {}q, {}bp, {}) ('{}','{}') Annotated={}  Readthrough={}   Genes Overlap={}\n".format(post_process.get_gene_name(k[0], gene_id_to_name), post_process.get_gene_name(k[1], gene_id_to_name), v['read_support'], *v['median_breakpoint_1'][:2], *v['median_breakpoint_1'][3:], *v['median_breakpoint_2'][:2], *v['median_breakpoint_2'][3:], v['median_breakpoint_1'][2], v['median_breakpoint_2'][2], v['annotated'],v['readthrough'], v['genes_overlap']))
