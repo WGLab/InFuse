@@ -57,7 +57,7 @@ if __name__=="__main__":
         with open(args.pickle, 'rb') as handle:
             output=pickle.load(handle)
         
-        gene_df=pd.read_csv(args.gff_path, sep='\t', comment='#', header=None)
+        gene_df=pd.read_csv(args.gff, sep='\t', comment='#', header=None)
         gene_df.rename(columns={0:'chrom', 2:'feature', 3:'start', 4:'end',6:'strand', 8:'info'}, inplace=True)
         gene_df=gene_df[gene_df.feature=='gene']
         gene_id_to_name={x:y for x,y in zip(gene_df.gene_id, gene_df.gene_name)}
