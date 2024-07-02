@@ -69,7 +69,7 @@ if __name__=="__main__":
     with open(os.path.join(output_path,args.prefix+'final_gf_single_bp.pickle'), 'wb') as handle:
         pickle.dump(final_gf_single_bp, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    with open(os.path.join(output_path,'final_gf_double_bp.two_annotated'), 'w') as ann_file, open(os.path.join(output_path,'final_gf_double_bp.inconsistent'), 'w') as incon_file:
+    with open(os.path.join(output_path,'final_gf_double_bp'), 'w') as ann_file, open(os.path.join(output_path,'final_gf_double_bp.inconsistent'), 'w') as incon_file:
         for k,v in sorted(final_gf_double_bp.items(), key=lambda x: x[1]['read_support'], reverse=True):
             if v['consistent']:
                 ann_file.write("{}::{} Support={} {}:{}({}bp, {}q, {}bp, {}) {}:{}({}bp, {}q, {}bp, {}) ('{}','{}') Annotated={}  Readthrough={}   Genes Overlap={}\n".format(post_process.get_gene_name(k[0], gene_id_to_name), post_process.get_gene_name(k[1], gene_id_to_name), v['read_support'], *v['median_breakpoint_1'][:2], *v['median_breakpoint_1'][3:], *v['median_breakpoint_2'][:2], *v['median_breakpoint_2'][3:], v['median_breakpoint_1'][2], v['median_breakpoint_2'][2], v['annotated'],v['readthrough'], v['genes_overlap']))
