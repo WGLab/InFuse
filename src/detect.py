@@ -261,7 +261,7 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
     if len(l_idx)==0:
         return [[False, ()]]
     
-    gf_l_idx, gf_r_idx=detect_GF_blocks(df_array, final_blocks, l_idx, r_idx)
+    gf_l_idx, gf_r_idx=detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map)
     
     genes_col=df_array[gf_r_idx, col_map['gene_id']]
 
@@ -404,7 +404,6 @@ def check_exons(final_blocks, df_array, r_idx, l_idx, gene_id, col_map, trans_ex
     return [match>0, best_exon_ids_final, closest_transcript]
 
 def call_manager(args):
-    t=time.time()
     bam_path=args.bam
     gff_path=args.gff
     non_coding_path=args.unannotated
@@ -421,6 +420,7 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
     
     print("Finished reading GFF file.")
     
+    t=time.time()
     bam=pysam.AlignmentFile(bam_path, 'rb')
     
     pmanager = mp.Manager()
@@ -480,7 +480,7 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
     for job in handlers:
         job.join()
 
-    print('read processing finished')
+    print('read processing finished in: ',  time.time()-t)
     
     total_output, output=parse_GF_output(output_queue, gene_id_to_name, gene_strand_map, inv_chrom_map, inv_strand_map, overlapping_genes)
     
