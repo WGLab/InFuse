@@ -23,7 +23,7 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
     df['exon_number']=df['exon_number'].fillna(-1)
     df['transcript_id']=df['transcript_id'].fillna(-1)
     df['exon_number']=pd.to_numeric(df['exon_number'])
-    df["exon_cid"]=df['chrom']+"|"+df['start'].astype(str)+"|"+df['end'].astype(str)
+    df["exon_cid"]=df['gene_id']+df['chrom']+"|"+df['start'].astype(str)+"|"+df['end'].astype(str)
     
     exon_df=df[(df.feature=='exon')|(df.feature=='gene')]
     exon_df2=exon_df.copy()

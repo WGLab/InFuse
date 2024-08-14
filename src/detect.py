@@ -121,7 +121,7 @@ def get_read_info(cigar, flag, ref_pos, seq, check_strand):
     rev=int(flag)&16
 
     if rev:
-        blocks[:,:2]=np.flip(rlen-blocks[:,:2],axis=1)
+        blocks[:,:2]=np.flip(rlen-blocks[:,:2]+1,axis=1)
         ref_range=np.vstack([e,s]).T
         blocks=np.hstack([blocks, np.flip(blocks[:,2:],axis=1), np.ones((blocks.shape[0],1))])
     else:
@@ -159,37 +159,23 @@ def detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map):
 
     #determine the best genes for the read by coverage
 
-    #segments covered by a single gene shouldn't contribute to distances
-    _,uid,cnts=np.unique(unique_exon_l_idx,return_counts=True, return_index=True)
-    singletons=uid[cnts<2]
-    min_dist[singletons]=0
-
-    # calculate the length of exons of each gene covered by the read (probably should do inner distance)
-    exon_len=np.abs(final_blocks[unique_exon_l_idx,2]-final_blocks[unique_exon_l_idx,3])+1
+    # calculate the length of read segments
+    exon_len=np.abs(final_blocks[:,2]-final_blocks[:,3])+1
 
     #cluster segments by gene
     cluster_gene=npi.group_by(df_array[unique_exon_r_idx,5])
     split_gene=cluster_gene.split(np.arange(len(unique_exon_l_idx)))
     split_gene={df_array[unique_exon_r_idx,5][x[0]]:(x,unique_exon_l_idx[x]) for x in split_gene}
 
-    #sort genes by how many segments of read they cover
-    longest_gene=sorted(split_gene.items(), key=lambda x:len(x[1][1]), reverse=True)[0]
+    #calculate the total boundary distance and total length of read segments not covered by each gene
+    gene_dist={x:np.sum(min_dist[y[0]])+np.sum(exon_len[np.setdiff1d(np.arange(len(exon_len)),y[1])]) for x,y in split_gene.items()}
 
-    #if a gene covers all segments of a reads, then that gene represents the read
-    if np.array_equal(longest_gene[1][1], np.unique(unique_exon_l_idx)):
-        keep_genes={longest_gene[0]}
+    cluster_exon=npi.group_by(unique_exon_l_idx)
+    split_exon=cluster_exon.split(np.arange(len(unique_exon_l_idx)))
 
-    #otherwise determine a set of genes to keep
-    #for each read segment, determine the best gene to keep and then combine
-    else:
-        #calculate the mean boundary distance and total length of exons covered
-        gene_dist={x:(np.mean(min_dist[y[0]]), np.sum(exon_len[y[0]])) for x,y in split_gene.items()}
+    #get the best gene based on smaller dist, higher covered length, then by name to break ties per read segment
+    keep_genes=set(sorted([(z,gene_dist[z]) for z in df_array[unique_exon_r_idx,5][x]], key=lambda g:(g[1], g[0]))[0][0] for x in split_exon)
 
-        cluster_exon=npi.group_by(unique_exon_l_idx)
-        split_exon=cluster_exon.split(np.arange(len(unique_exon_l_idx)))
-
-        #get the best gene based on smaller dist, higher covered length, then by name to break ties
-        keep_genes=set(sorted([(z,*gene_dist[z]) for z in df_array[unique_exon_r_idx,5][x]], key=lambda g:(g[1],1/g[2],g[0]))[0][0] for x in split_exon)
     keep_genes_idx=np.sort(np.hstack([split_gene[x][0] for x in keep_genes]))
 
     final_exon_r_idx=unique_exon_r_idx[keep_genes_idx]
@@ -208,8 +194,9 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
     
     block_start_list=[]
     block_end_list=[]
+    seg_num_list=[]
     seq=""
-    for read in read_info:
+    for seg_num, read in enumerate(read_info):
         read_name, ref_name, cigar, flag, ref_pos, read_seq, mapq = read
         if int(flag)&0x900==0:
             seq=read_seq if int(flag)&16==0 else revcomp(read_seq)
@@ -222,6 +209,7 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
         mapq_list.append(np.full(len(blocks), mapq, dtype=int))
         block_start_list.append(np.full(len(blocks), np.min(blocks[:,:2]), dtype=int))
         block_end_list.append(np.full(len(blocks), np.max(blocks[:,:2]), dtype=int))
+        seg_num_list.append(np.full(len(blocks), seg_num, dtype=int))
         
     if len(blocks_list)==0 or len(seq)==0:
         return [[0, ()]]
@@ -234,12 +222,14 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
     mapq_col=np.hstack(mapq_list)
     block_start_list=np.hstack(block_start_list)
     block_end_list=np.hstack(block_end_list)
+    seg_num_col=np.hstack(seg_num_list)
     
     start_col=(1e10*chrom_col+1e9*strand_col+merged_blocks_list[:,2]).astype(int)
     end_col=(1e10*chrom_col+1e9*strand_col+merged_blocks_list[:,3]).astype(int)
 
-    #q_start, q_end, r_start, r_end, r_start_5prime, r_end_3prime, original_strand, chrom_col, strand_col, start_col, end_col, ref_range_list_start, ref_range_list_end
-    final_blocks=np.hstack([merged_blocks_list,np.stack([chrom_col, strand_col, start_col, end_col, mapq_col]).T, ref_range_list, np.stack([block_start_list, block_end_list]).T])
+    #q_start, q_end, r_start, r_end, r_start_5prime, r_end_3prime, original_strand, chrom_col, strand_col, 
+    #start_col, end_col, mapq_col, ref_range_list_start, ref_range_list_end ,block_start_list, block_end_list, seg_num_col
+    final_blocks=np.hstack([merged_blocks_list,np.stack([chrom_col, strand_col, start_col, end_col, mapq_col]).T, ref_range_list, np.stack([block_start_list, block_end_list, seg_num_col]).T])
     final_blocks=final_blocks[np.sum(final_blocks[:, :2],axis=1).argsort(kind='mergesort')]
     
     tmp=final_blocks[:,[0,1]]
@@ -271,11 +261,11 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
     if len(l_idx)==0:
         return [[False, ()]]
     
-    gf_l_idx, gf_r_idx=detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map)
+    gf_l_idx, gf_r_idx=detect_GF_blocks(df_array, final_blocks, l_idx, r_idx)
     
     genes_col=df_array[gf_r_idx, col_map['gene_id']]
 
-    gene_list=tuple(sorted(np.unique(genes_col)))    
+    gene_list=tuple(sorted(np.unique(genes_col)))
     
     #DISABLE Exon Skipping?
     if len(gene_list)<1:
@@ -331,7 +321,8 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
             bp1_intron=True if  tid_col[bp_exon]==-1 else False
             bp2_intron=True if  tid_col[bp_exon+1]==-1 else False
             
-            gf_output.append([2, (read_name, genes_col[bp_exon:bp_exon+2], (rbp1, rbp2), (bp1, bp2), (str_1, str_2), (mapq1, mapq2), (bp1_intron, bp2_intron))])
+            same_segment=True if final_blocks[gf_l_idx[bp_exon], 16]==final_blocks[gf_l_idx[bp_exon+1], 16] else False
+            gf_output.append([2, (read_name, genes_col[bp_exon:bp_exon+2], (rbp1, rbp2), (bp1, bp2), (str_1, str_2), (mapq1, mapq2), (bp1_intron, bp2_intron), same_segment)])
             
         return gf_output 
     
@@ -397,22 +388,19 @@ def check_exons(final_blocks, df_array, r_idx, l_idx, gene_id, col_map, trans_ex
     best_exon_ids={x:tuple(df_array[tr_r_idx, col_map['exon_cid']][y]) for x,y in best_exon_index.items()}
     tmp=np.array([len(x) for x in best_exon_ids.values()])
     
-    #if np.prod(tmp)*len(split_trans_exon)>1000000:
-    #    print(gene_id, tmp, np.prod(tmp), len(split_trans_exon), np.prod(tmp)*len(split_trans_exon))
-    #    return [True, [], []]
+    if np.prod(tmp)*len(split_trans_exon)>1000000:
+        print(gene_id, read_name, tmp, np.prod(tmp), len(split_trans_exon), np.prod(tmp)*len(split_trans_exon))
+        return [True, [], []]
     
     exon_combo=[(set(x), ','.join(x)) for x in itertools.product(*list(best_exon_ids.values()))]
     
     #determine which transcript best represents the read
     #get list of exons for each transcript
-    
-    
-    
-    
+        
     trans_dist=[(transcript_data[0], exon_list[1] in transcript_data[1]['exons_string'], len(exon_list[0] & set(transcript_data[1]['exons'])), len(exon_list[0]-set(transcript_data[1]['exons']))) for exon_list, transcript_data in itertools.product(exon_combo, split_trans_exon.items())]
     match=sum([x[1] for x in trans_dist])
     closest_transcript=sorted(trans_dist, key=lambda x:x[2], reverse=True)[0]
-    best_exon_ids_final=tuple([next(iter(set(v)&set(split_trans_exon[closest_transcript[0]]))) if set(v)&set(split_trans_exon[closest_transcript[0]]) else v[0] for v in best_exon_ids.values()])
+    best_exon_ids_final=tuple([next(iter(set(v)&set(split_trans_exon[closest_transcript[0]]['exons']))) if set(v)&set(split_trans_exon[closest_transcript[0]]['exons']) else v[0] for v in best_exon_ids.values()])
     return [match>0, best_exon_ids_final, closest_transcript]
 
 def call_manager(args):
@@ -499,7 +487,7 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
     print("finished parsing GFs")
     
     with open(os.path.join(output_path, args.prefix+'.read_level.pickle'), 'wb') as handle:
-        print(os.path.join(output_path, args.prefix+'.read_level.pickle'))
+        print("Saving intermediate results in: ", os.path.join(output_path, args.prefix+'.read_level.pickle'))
         pickle.dump(output, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
     return total_output, output, gene_id_to_name
