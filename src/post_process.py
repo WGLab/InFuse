@@ -30,7 +30,7 @@ def parse_GF_output(data, gene_id_to_name, gene_strand_map, inv_chrom_map, inv_s
     total_output={}    
 
     for x in data:
-        rname, init_gene_list, rbp, bp, strands, mapq, bp_intron=x
+        rname, init_gene_list, rbp, bp, strands, mapq, bp_intron, same_segment=x
 
         gene_list=tuple(sorted(init_gene_list ))#(gene_map[v] for v in gene_list)
         genes_overlap=gene_list in overlapping_genes
@@ -63,14 +63,14 @@ def parse_GF_output(data, gene_id_to_name, gene_strand_map, inv_chrom_map, inv_s
             gene_list=(gene_1, gene_2,'inconsistent')
 
         if gene_list not in output:
-            output[gene_list]={'reads':[], 'info':[],'genes_overlap':genes_overlap, 'is_consistent': gene_list[2]=='consistent'}
+            output[gene_list]={'reads':[], 'info':[],'genes_overlap':genes_overlap, 'is_consistent': gene_list[2]=='consistent', 'same_segment':same_segment}
         output[gene_list]['reads'].append(rname)
         output[gene_list]['info'].append((gene_1_data, gene_2_data))
         
     
     return total_output, output
 
-def get_cluster(read1, read2, read_names, cluster_type, genes_overlap, consistent, gene_id_to_name, distance_threshold=2, min_support=1):
+def get_cluster(read1, read2, read_names, cluster_type, genes_overlap, consistent, same_segment, gene_id_to_name, distance_threshold=2, min_support=1):
     
     if cluster_type=="both":
         data_to_fit=np.vstack([read1['bp'], read2['bp']]).T
@@ -103,8 +103,8 @@ def get_cluster(read1, read2, read_names, cluster_type, genes_overlap, consisten
             
             bp1_range, bp2_range=np.max(read1_cluster['bp'])-np.min(read1_cluster['bp']), np.max(read2_cluster['bp'])-np.min(read2_cluster['bp'])
 
-            r1len =np.max(read1_cluster['read_bp_3p']-read1_cluster['read_bp_5p'])
-            r2len =np.max(read2_cluster['read_bp_3p']-read2_cluster['read_bp_5p'])
+            r1len =np.max(read1_cluster['read_bp_3p']-read1_cluster['read_bp_5p'])+1
+            r2len =np.max(read2_cluster['read_bp_3p']-read2_cluster['read_bp_5p'])+1
             
             intron1="Intronic" if np.mean(read1_cluster['intron'])>=0.5 else "Exonic"
             intron2="Intronic" if np.mean(read2_cluster['intron'])>=0.5 else "Exonic"
@@ -113,7 +113,8 @@ def get_cluster(read1, read2, read_names, cluster_type, genes_overlap, consisten
             chrom_2=read2_cluster['chrom'][0]
             gene_1=read1_cluster['gene_id'][0]
             gene_2=read2_cluster['gene_id'][0]
-            readthrough=True if chrom_1==chrom_2 and abs(bp1-bp2)<200000 else False
+            
+            readthrough=True if chrom_1==chrom_2 and abs(bp1-bp2)<200000 and same_segment else False
             
             annotated=(gene_1 in gene_id_to_name) + (gene_2 in gene_id_to_name)
             value={'median_breakpoint_1':(chrom_1, bp1, gene_1, bp1_range, mapq1, r1len, intron1), \
@@ -136,12 +137,12 @@ def get_GFs(output, gene_id_to_name, distance_threshold=20, min_support=1):
         read2=np.array([x[1] for x in output[key]['info']], dtype=[('read_bp_5p', int), ('read_bp_3p', int), ('read_strand', 'O'), ('chrom', 'O'), ('bp', int), ('gene_id','O'), ('gene_name', 'O'), ('gene_strand', 'O'), ('mapq',int), ('intron', bool)])
         
         read_names=np.array(output[key]['reads'])
-        genes_overlap, consistent=output[key]['genes_overlap'],output[key]['is_consistent']
+        genes_overlap, consistent, same_segment=output[key]['genes_overlap'], output[key]['is_consistent'], output[key]['same_segment']
         
-        double_bp=get_cluster(read1, read2, read_names, "both", genes_overlap, consistent, gene_id_to_name, distance_threshold, min_support)
+        double_bp=get_cluster(read1, read2, read_names, "both", genes_overlap, consistent, same_segment, gene_id_to_name, distance_threshold, min_support)
         final_gf_double_bp.update(double_bp)
-        left_dict=get_cluster(read1, read2, read_names, "left", genes_overlap, consistent, gene_id_to_name, distance_threshold, min_support)
-        right_dict=get_cluster(read1, read2, read_names, "right", genes_overlap, consistent, gene_id_to_name, distance_threshold, min_support)
+        left_dict=get_cluster(read1, read2, read_names, "left", genes_overlap, consistent, same_segment, gene_id_to_name, distance_threshold, min_support)
+        right_dict=get_cluster(read1, read2, read_names, "right", genes_overlap, consistent, same_segment, gene_id_to_name, distance_threshold, min_support)
         
         if len(left_dict)<len(right_dict):
             final_gf_single_bp.update(left_dict)
