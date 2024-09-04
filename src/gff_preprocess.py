@@ -25,14 +25,18 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
     df['exon_number']=pd.to_numeric(df['exon_number'])
     df["exon_cid"]=df['gene_id']+df['chrom']+"|"+df['start'].astype(str)+"|"+df['end'].astype(str)
     
-    exon_df=df[(df.feature=='exon')|(df.feature=='gene')]
-    exon_df2=exon_df.copy()
-    exon_df2['strand']='+-'
+    
     
     if check_strand:
-        merged_exon_df=pd.concat([exon_df, exon_df2]).reset_index(drop=True)
+        #add anti-sense strand for each gene
+        exon_df=df[(df.feature=='exon')|(df.feature=='gene')]
+        anti_sense_exon_gene_df=df[df.feature=='gene'].copy()
+        anti_sense_exon_gene_df['strand']=anti_sense_exon_gene_df['strand'].map(strand_switch)
+        merged_exon_df=pd.concat([exon_df, anti_sense_exon_gene_df]).reset_index(drop=True)
+        
     else:
-        merged_exon_df=exon_df2
+        merged_exon_df=df[(df.feature=='exon')|(df.feature=='gene')].copy()
+        merged_exon_df['strand']='+-'
     
     if include_unannotated:
         non_coding_df=pd.read_csv(non_coding_path, sep="\t", header=None)
@@ -41,7 +45,16 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
         non_coding_df['gene_type']="unannotated"
         non_coding_df['gene_id']=non_coding_df['gene_name']
         non_coding_df['exon_id']=non_coding_df['gene_id']    
-        merged_exon_df=pd.concat([merged_exon_df, non_coding_df]).reset_index(drop=True)
+        
+        if check_strand:
+            non_coding_df_plus=non_coding_df.copy()
+            non_coding_df_plus['strand']="+"
+            non_coding_df_minus=non_coding_df.copy()
+            non_coding_df_minus['strand']="-"
+            
+            merged_exon_df=pd.concat([merged_exon_df, non_coding_df_plus, non_coding_df_minus]).reset_index(drop=True)
+        else:
+            merged_exon_df=pd.concat([merged_exon_df, non_coding_df]).reset_index(drop=True)
         
     merged_exon_df['strand_num']=merged_exon_df['strand'].map(strand_map)
     merged_exon_df['chrom_num']=merged_exon_df['chrom'].map(chrom_map)

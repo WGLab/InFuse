@@ -24,7 +24,8 @@ if __name__=="__main__":
                                       help="Detect gene fusions and novel isoforms from BAM file.",  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
     detect_required=detect_parser.add_argument_group("Required Arguments")
-    detect_parser.add_argument("--bam", help='Path to aligned BAM file sorted by name.', type=str, required=True)
+    detect_parser.add_argument("--bam", help='Path to aligned BAM file.', type=str, required=True)
+    detect_parser.add_argument("--seq_type", help='Sequencing type.', type=str, choices=["rna", "cdna"], default="cdna")
     detect_parser.add_argument("--check_strand", help='Check strand orientation of reads using ply A tail and primers', default=False, action='store_true')
     detect_parser.add_argument("--threads", help='Number of threads', type=int, default=4)
     detect_parser.add_argument("--gf_only", help='Check gene fusions only', default=False, action='store_true')

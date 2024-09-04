@@ -1,4 +1,4 @@
-import re, os, argparse
+import re, os, argparse, datetime
 
 import multiprocessing as mp
 import time
@@ -19,6 +19,8 @@ import collections
 
 from .post_process import parse_GF_output
 from .gff_preprocess import gff_parse
+
+from .utils import *
 
 primer='CTTGCGGGCGGCGGACTCTCCTCTGAAGATAGAGCGACAGGCAAG'
 
@@ -95,30 +97,31 @@ def get_blocks(cigar_tuples, ref_start):
         blocks.append([prev_read_coord, read_coord-1, prev_ref_coord+1, ref_coord])
     return np.array(blocks), ref_coord, rlen
 
-def get_read_info(cigar, flag, ref_pos, seq, check_strand):
+def get_read_info(cigar, flag, ref_pos, seq, check_strand, seq_type="any"):
     global cigar_pattern
     
     mrna_strand_num=2
+    rev=int(flag)&16
     
     if check_strand:
-        pid=get_sw(seq)
-        rev_pid=get_sw(revcomp(seq))
-        best_T, best_A = get_longest_subsequence(seq)
+        if seq_type=="rna":
+            mrna_strand_num=1 if rev else 0
+        else:
+            pid=get_sw(seq)
+            rev_pid=get_sw(revcomp(seq))
+            best_T, best_A = get_longest_subsequence(seq)
 
-        if pid>rev_pid+0.5 or best_A[1]>best_T[1]+5:
-            mrna_strand_num=0
+            if pid>rev_pid+0.5 or best_A[1]>best_T[1]+5:
+                mrna_strand_num=0
 
-        elif pid+0.5<rev_pid or 5+best_A[1]<best_T[1]:
-            mrna_strand_num=1        
+            elif pid+0.5<rev_pid or 5+best_A[1]<best_T[1]:
+                mrna_strand_num=1        
 
     cigar_tuples = np.array([(int(x[:-1]), cigar_map[x[-1]]) for x in re.findall(cigar_pattern, cigar)])
     blocks, ref_coord, rlen=get_blocks(cigar_tuples, int(ref_pos))
     
     s=np.full(len(blocks), ref_pos, dtype=int)
-    e=np.full(len(blocks), ref_coord, dtype=int)
-    
-    
-    rev=int(flag)&16
+    e=np.full(len(blocks), ref_coord, dtype=int)  
 
     if rev:
         blocks[:,:2]=np.flip(rlen-blocks[:,:2]+1,axis=1)
@@ -183,7 +186,7 @@ def detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map):
     
     return final_exon_l_idx, final_exon_r_idx
 
-def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only):
+def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only, seq_type="any"):
     chrom_list=[]
     strand_list=[]
     blocks_list=[]
@@ -201,7 +204,8 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
         if int(flag)&0x900==0:
             seq=read_seq if int(flag)&16==0 else revcomp(read_seq)
         orientation_list.append(int(flag)&16)
-        blocks, ref_range, mrna_strand_num=get_read_info(cigar, flag, ref_pos, read_seq, check_strand)
+        blocks, ref_range, mrna_strand_num=get_read_info(cigar, flag, ref_pos, read_seq, check_strand, seq_type)
+        
         ref_range_list.append(ref_range)
         blocks_list.append(np.array(blocks))
         chrom_list.append(np.full(len(blocks), chrom_map[ref_name], dtype=int))
@@ -270,7 +274,9 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
     #DISABLE Exon Skipping?
     if len(gene_list)<1:
         return [[0, ()]]
-    elif len(gene_list)==1 and not gf_only:
+    elif len(gene_list)==1:
+        if gf_only:
+            return [[0, ()]]
         gene_id=gene_list[0]
         try:
             gene_strand=gene_strand_map[gene_id]
@@ -326,7 +332,7 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
             
         return gf_output 
     
-def process(input_queue, output_queue, trans_output_queue, input_event, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only):
+def process(input_queue, output_queue, trans_output_queue, input_event, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only, seq_type="any"):
     
     
     #define interval tree of exons
@@ -340,7 +346,7 @@ def process(input_queue, output_queue, trans_output_queue, input_event, df_array
             read_chunk=input_queue.get(block=False, timeout=10)
             
             for read_info in read_chunk:
-                result= get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only)
+                result= get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only, seq_type)
 
                 for (status, res) in result:
                     if status==1:
@@ -389,7 +395,7 @@ def check_exons(final_blocks, df_array, r_idx, l_idx, gene_id, col_map, trans_ex
     tmp=np.array([len(x) for x in best_exon_ids.values()])
     
     if np.prod(tmp)*len(split_trans_exon)>1000000:
-        print(gene_id, read_name, tmp, np.prod(tmp), len(split_trans_exon), np.prod(tmp)*len(split_trans_exon))
+        print(gene_id, tmp, np.prod(tmp), len(split_trans_exon), np.prod(tmp)*len(split_trans_exon))
         return [True, [], []]
     
     exon_combo=[(set(x), ','.join(x)) for x in itertools.product(*list(best_exon_ids.values()))]
@@ -398,6 +404,7 @@ def check_exons(final_blocks, df_array, r_idx, l_idx, gene_id, col_map, trans_ex
     #get list of exons for each transcript
         
     trans_dist=[(transcript_data[0], exon_list[1] in transcript_data[1]['exons_string'], len(exon_list[0] & set(transcript_data[1]['exons'])), len(exon_list[0]-set(transcript_data[1]['exons']))) for exon_list, transcript_data in itertools.product(exon_combo, split_trans_exon.items())]
+            
     match=sum([x[1] for x in trans_dist])
     closest_transcript=sorted(trans_dist, key=lambda x:x[2], reverse=True)[0]
     best_exon_ids_final=tuple([next(iter(set(v)&set(split_trans_exon[closest_transcript[0]]['exons']))) if set(v)&set(split_trans_exon[closest_transcript[0]]['exons']) else v[0] for v in best_exon_ids.values()])
@@ -414,11 +421,12 @@ def call_manager(args):
     check_strand=args.check_strand
     include_unannotated=False if non_coding_path==None else True
     gf_only=args.gf_only
+    seq_type=args.seq_type
     
     df, chrom_map, inv_chrom_map, merged_exon_df, exon_array, col_map,\
 gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, trans_exon_counts_map, get_gene_exons = gff_parse(gff_path, non_coding_path, include_unannotated=include_unannotated)
     
-    print("Finished reading GFF file.")
+    print("Finished reading GFF file.", flush=True)
     
     t=time.time()
     bam=pysam.AlignmentFile(bam_path, 'rb')
@@ -432,63 +440,58 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
     threads=args.threads
     handlers=[]
     for hid in range(threads):
-        p = mp.Process(target=process, args=(input_queue, output_queue, trans_output_queue, input_event, exon_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only))
+        p = mp.Process(target=process, args=(input_queue, output_queue, trans_output_queue, input_event, exon_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only, seq_type))
         p.start();
         handlers.append(p);
 
-    read_chunk=[]
-    read_info=[]
-    curr_rname=''
+    bam_data={}    
+    for k, read in enumerate(bam.fetch(until_eof=True)):
+        if k%500000==0:
+            print('{}: Reading BAM File {} {} {}\n'.format(str(datetime.datetime.now()), k, input_queue.qsize(), time.time()-t), flush=True)
 
-    for k,read in enumerate(bam.fetch(until_eof=True)):
-        if k%100000==0:
-            print(k, input_queue.qsize(), time.time()-t)
+        if read.flag&260!=0:
+                continue
 
-        if input_queue.qsize()>1000:
-            #pass
-            time.sleep(2)
+        if read.qname not in bam_data:
+            bam_data[read.qname]=[]
 
-        if read.qname!=curr_rname and k>1:
-            read_chunk.append(read_info)
-            read_info=[]
-            curr_rname=read.qname
+        if read.reference_name in chrom_map:
+            bam_data[read.qname].append([read.qname, read.reference_name, read.cigarstring, read.flag, read.reference_start, read.seq, read.mapq])
 
-            if len(read_chunk)>=100:
-                input_queue.put(read_chunk)
-                read_chunk=[]
+    for chunk in split_list(list(bam_data.values()),n=1000):
+        input_queue.put(chunk)
 
-        #if not (read.is_secondary or read.is_unmapped or read.reference_name not in chrom_map):
-        if  read.is_unmapped or read.reference_name not in chrom_map:
-            continue
-        else:
-            if (not read.is_secondary):# or read.reference_name=='chrX':
-                read_info.append([read.qname, read.reference_name, read.cigarstring, read.flag, read.reference_start, read.seq, read.mapq])
-
-    if len(read_info)>0:
-        read_chunk.append(read_info)
-
-    if len(read_chunk)>0:
-        input_queue.put(read_chunk)
-
-    print('input finished')
+    print('{}: Processing reads. Remaining chunks={}  Time elapsed={}s'.format(str(datetime.datetime.now()), input_queue.qsize(), time.time()-t))
     input_event.set()
-    
+
     while not input_queue.empty():
-        time.sleep(20)
-        print(k, input_queue.qsize(), time.time()-t)
+        if input_queue.qsize()>10:
+            print('{}: Processing reads. Remaining chunks={}  Time elapsed={}s'.format(str(datetime.datetime.now()), input_queue.qsize(), time.time()-t))
+            time.sleep(5)
+        else:
+            break
 
     for job in handlers:
         job.join()
 
-    print('read processing finished in: ',  time.time()-t)
+    print('{}: Read processing finished in={}s'.format(str(datetime.datetime.now()), time.time()-t), flush=True)
     
     total_output, output=parse_GF_output(output_queue, gene_id_to_name, gene_strand_map, inv_chrom_map, inv_strand_map, overlapping_genes)
     
-    print("finished parsing GFs")
+    print("{}: Finished parsing GFs".format(str(datetime.datetime.now())), flush=True)
     
     with open(os.path.join(output_path, args.prefix+'.read_level.pickle'), 'wb') as handle:
-        print("Saving intermediate results in: ", os.path.join(output_path, args.prefix+'.read_level.pickle'))
+        print("Saving intermediate Fusion results in: ", os.path.join(output_path, args.prefix+'.read_level.pickle'), flush=True)
         pickle.dump(output, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    if not gf_only:
+        raw_exon=[]
+        for x in trans_output_queue:
+            raw_exon.append(x)
+
+        with open(os.path.join(output_path, args.prefix+'.exons.pickle'), 'wb') as handle:
+            print("Saving intermediate exon patterns results in: ", os.path.join(output_path, args.prefix+'.exons.pickle'), flush=True)
+            pickle.dump(raw_exon, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
     return total_output, output, gene_id_to_name
                        
