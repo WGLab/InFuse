@@ -117,8 +117,8 @@ def get_cluster(read1, read2, read_names, cluster_type, genes_overlap, consisten
             readthrough=True if chrom_1==chrom_2 and abs(bp1-bp2)<200000 and same_segment else False
             
             annotated=(gene_1 in gene_id_to_name) + (gene_2 in gene_id_to_name)
-            value={'median_breakpoint_1':(chrom_1, bp1, gene_1, bp1_range, mapq1, r1len, intron1), \
-                                              'median_breakpoint_2':(chrom_2, bp2, gene_2, bp2_range, mapq2, r2len, intron2), \
+            value={'median_breakpoint_1':(read1_cluster[0][6], chrom_1, bp1, gene_1, bp1_range, mapq1, r1len, intron1), \
+                                              'median_breakpoint_2':(read2_cluster[0][6], chrom_2, bp2, gene_2, bp2_range, mapq2, r2len, intron2, ), \
                                               'read_support': read_support,'annotated':annotated, \
                                               'read_names': cluster_read_names,\
                                                'read1_cluster':read1_cluster, 'read2_cluster':read2_cluster,\
