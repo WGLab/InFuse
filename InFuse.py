@@ -72,14 +72,22 @@ if __name__=="__main__":
         pickle.dump(final_gf_double_bp, handle, protocol=pickle.HIGHEST_PROTOCOL)
     with open(os.path.join(output_path,args.prefix+'.final_gf_single_bp.pickle'), 'wb') as handle:
         pickle.dump(final_gf_single_bp, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
+    
+    header="\t".join(["gene_fusion", "read_support", "num_annotated", "genes_overlap", "consistent", "readthrough", "gene_1_name", "gene_1_id", "chr_bp1", "pos_bp1", "range_bp1", "mapq_bp1", "max_len_bp1", "region_type_bp1", "gene_2_name", "gene_2_id", "chr_bp2", "pos_bp2", "range_bp2", "mapq_bp2", "max_len_bp2", "region_type_bp2"])
+    
     with open(os.path.join(output_path,args.prefix+'.final_gf_double_bp'), 'w') as ann_file, open(os.path.join(output_path,args.prefix+'.final_gf_double_bp.inconsistent'), 'w') as incon_file:
+        ann_file.write(header+'\n')
+        incon_file.write(header+'\n')
+        
         for k,v in sorted(final_gf_double_bp.items(), key=lambda x: x[1]['read_support'], reverse=True):
+            gene_fusion="{}::{}".format(v['median_breakpoint_1'][0], v['median_breakpoint_2'][0])
+            read_support, num_annotated, genes_overlap, consistent, readthrough= v['read_support'], v['annotated'], v['genes_overlap'], v['consistent'], v['readthrough']
+            rec="\t".join(str(x) for x in [gene_fusion, read_support, num_annotated, genes_overlap, consistent, readthrough, *v['median_breakpoint_1'], *v['median_breakpoint_2']])
+        
             if v['consistent']:
-                ann_file.write("{}::{} Support={} {}:{}({}bp, {}q, {}bp, {}) {}:{}({}bp, {}q, {}bp, {}) ('{}','{}') Annotated={}  Readthrough={}   Genes Overlap={}\n".format(post_process.get_gene_name(k[0], gene_id_to_name), post_process.get_gene_name(k[1], gene_id_to_name), v['read_support'], *v['median_breakpoint_1'][:2], *v['median_breakpoint_1'][3:], *v['median_breakpoint_2'][:2], *v['median_breakpoint_2'][3:], v['median_breakpoint_1'][2], v['median_breakpoint_2'][2], v['annotated'],v['readthrough'], v['genes_overlap']))
-
+                ann_file.write(rec+'\n')
                 
             else:
-                incon_file.write("{}::{} Support={} {}:{}({}bp, {}q, {}bp, {}) {}:{}({}bp, {}q, {}bp, {}) ('{}','{}') Annotated={}  Readthrough={}   Genes Overlap={}\n".format(post_process.get_gene_name(k[0], gene_id_to_name), post_process.get_gene_name(k[1], gene_id_to_name), v['read_support'], *v['median_breakpoint_1'][:2], *v['median_breakpoint_1'][3:], *v['median_breakpoint_2'][:2], *v['median_breakpoint_2'][3:], v['median_breakpoint_1'][2], v['median_breakpoint_2'][2], v['annotated'],v['readthrough'], v['genes_overlap']))
+                incon_file.write(rec+'\n')
                 
     print('Time elapsed={}s'.format(time.time()-t))
