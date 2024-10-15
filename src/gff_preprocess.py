@@ -11,10 +11,10 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
     chrom_map={x:i+1 for i,x in enumerate(df.chrom.unique())}
     inv_chrom_map={x:y for y,x in chrom_map.items()}
 
-    df['gene_id']=df['info'].str.extract(r'gene_id=([^;]+)')
+    df['gene_id']=df['info'].str.extract(r'gene_id=([^;]+)')[0].str.extract(r"([^.]+)")
     df['gene_name']=df['info'].str.extract(r'gene_name=([^;]+)')
-    df['transcript_id']=df['info'].str.extract(r'transcript_id=([^;]+)')
-    df['exon_id']=df['info'].str.extract(r'exon_id=([^;]+)')
+    df['transcript_id']=df['info'].str.extract(r'transcript_id=([^;]+)')[0].str.extract(r"([^.]+)")
+    df['exon_id']=df['info'].str.extract(r'exon_id=([^;]+)')[0].str.extract(r"([^.]+)")
     df['exon_number']=df['info'].str.extract(r'exon_number=([^;]+)')
     df['gene_type']=df['info'].str.extract(r'gene_type=([^;]+)')
     df.drop(columns=[1,5,7,'info'], inplace=True)
@@ -28,11 +28,13 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
     
     
     if check_strand:
-        #add anti-sense strand for each gene
+        #add anti-sense strand for each gene?
         exon_df=df[(df.feature=='exon')|(df.feature=='gene')]
-        anti_sense_exon_gene_df=df[df.feature=='gene'].copy()
-        anti_sense_exon_gene_df['strand']=anti_sense_exon_gene_df['strand'].map(strand_switch)
-        merged_exon_df=pd.concat([exon_df, anti_sense_exon_gene_df]).reset_index(drop=True)
+        #anti_sense_exon_gene_df=df[df.feature=='gene'].copy()
+        #anti_sense_exon_gene_df['exon_number']
+        #anti_sense_exon_gene_df['strand']=anti_sense_exon_gene_df['strand'].map(strand_switch)
+        
+        merged_exon_df=exon_df #pd.concat([exon_df, anti_sense_exon_gene_df]).reset_index(drop=True)
         
     else:
         merged_exon_df=df[(df.feature=='exon')|(df.feature=='gene')].copy()
@@ -49,10 +51,16 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
         if check_strand:
             non_coding_df_plus=non_coding_df.copy()
             non_coding_df_plus['strand']="+"
+            non_coding_df_plus['gene_id']=non_coding_df_plus['gene_id']+'_plus_strand'
+            non_coding_df_plus['gene_name']=non_coding_df_plus['gene_name']+'_plus_strand'
             non_coding_df_minus=non_coding_df.copy()
             non_coding_df_minus['strand']="-"
+            non_coding_df_minus['gene_id']=non_coding_df_minus['gene_id']+'_minus_strand'
+            non_coding_df_minus['gene_name']=non_coding_df_minus['gene_name']+'_minus_strand'
             
-            merged_exon_df=pd.concat([merged_exon_df, non_coding_df_plus, non_coding_df_minus]).reset_index(drop=True)
+            non_coding_df=pd.concat([non_coding_df_plus, non_coding_df_minus]).reset_index(drop=True)
+            
+            merged_exon_df=pd.concat([merged_exon_df, non_coding_df]).reset_index(drop=True)
         else:
             merged_exon_df=pd.concat([merged_exon_df, non_coding_df]).reset_index(drop=True)
         
@@ -67,6 +75,10 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
     col_map={x:i for i,x in enumerate(merged_exon_df.columns)}
 
     gene_df=df[df.feature=='gene'].copy()
+    
+    if include_unannotated:
+        gene_df=pd.concat([gene_df, non_coding_df]).reset_index(drop=True)
+        
     gene_df['strand_num']=gene_df['strand'].map(strand_map)
     gene_df['chrom_num']=gene_df['chrom'].map(chrom_map)
     gene_df['new_start']=1e10*gene_df['chrom_num']+gene_df['start']

@@ -22,36 +22,13 @@ from .gff_preprocess import gff_parse
 
 from .utils import *
 
-primer='CTTGCGGGCGGCGGACTCTCCTCTGAAGATAGAGCGACAGGCAAG'
-
 sub_mat=parasail.matrix_create('AGTC',20,-10)
-comp_base_map={'A':'T','T':'A','C':'G','G':'C','[':']', ']':'['}
 cigar_map={'M':0, '=':0, 'X':0, 'D':1, 'I':2, 'S':4,'H':4, 'N':3, 'P':5, 'B':5}
 cigar_pattern = r'\d+[A-Za-z]'
 
 strand_map={'+':0,'-':1,'+-':2}
 inv_strand_map={0:'+',1:'-', 2:'+-'}
 strand_switch={'+':'-', '-':'+'}
-
-def revcomp(s):
-    return ''.join(comp_base_map[x] for x in s[::-1])
-
-def get_sw(seq):
-    global primer
-    global sub_mat
-    cigar=parasail.sw_trace(seq, primer, 9, 1, sub_mat).cigar
-    cigar_op=[(x & 0xf, x >> 4) for x in cigar.seq] #op count
-    matches=sum(x[1] for x in cigar_op if x[0]==7)
-    total_len=sum(x[1] for i,x in enumerate(cigar_op) if ~((i==0 or i==len(cigar_op)-1) and x[0]==1))
-    pid=matches/total_len
-    
-    return pid
-
-def get_longest_subsequence(seq):
-    counts=[(x, sum(1 for _ in y)) for x,y in itertools.groupby(seq) if x=='A' or x=='T']+[('A',0), ('T',0)]
-    max_T=max([x for x in counts if x[0]=='T'], key=lambda x:x[1])
-    max_A=max([x for x in counts if x[0]=='A'], key=lambda x:x[1])
-    return max_T, max_A
 
 def get_blocks(cigar_tuples, ref_start):
     #cigar_map={'M':0, '=':0, 'X':0, 'D':1, 'I':2, 'S':4,'H':4, 'N':3, 'P':5, 'B':5}
@@ -97,25 +74,14 @@ def get_blocks(cigar_tuples, ref_start):
         blocks.append([prev_read_coord, read_coord-1, prev_ref_coord+1, ref_coord])
     return np.array(blocks), ref_coord, rlen
 
-def get_read_info(cigar, flag, ref_pos, seq, check_strand, seq_type="any"):
+def get_read_info(cigar, flag, ref_pos, seq, check_strand):
     global cigar_pattern
     
     mrna_strand_num=2
     rev=int(flag)&16
     
     if check_strand:
-        if seq_type=="rna":
-            mrna_strand_num=1 if rev else 0
-        else:
-            pid=get_sw(seq)
-            rev_pid=get_sw(revcomp(seq))
-            best_T, best_A = get_longest_subsequence(seq)
-
-            if pid>rev_pid+0.5 or best_A[1]>best_T[1]+5:
-                mrna_strand_num=0
-
-            elif pid+0.5<rev_pid or 5+best_A[1]<best_T[1]:
-                mrna_strand_num=1        
+        mrna_strand_num=1 if rev else 0
 
     cigar_tuples = np.array([(int(x[:-1]), cigar_map[x[-1]]) for x in re.findall(cigar_pattern, cigar)])
     blocks, ref_coord, rlen=get_blocks(cigar_tuples, int(ref_pos))
@@ -186,7 +152,7 @@ def detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map):
     
     return final_exon_l_idx, final_exon_r_idx
 
-def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only, seq_type="any"):
+def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only):
     chrom_list=[]
     strand_list=[]
     blocks_list=[]
@@ -204,7 +170,7 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
         if int(flag)&0x900==0:
             seq=read_seq if int(flag)&16==0 else revcomp(read_seq)
         orientation_list.append(int(flag)&16)
-        blocks, ref_range, mrna_strand_num=get_read_info(cigar, flag, ref_pos, read_seq, check_strand, seq_type)
+        blocks, ref_range, mrna_strand_num=get_read_info(cigar, flag, ref_pos, read_seq, check_strand)
         
         ref_range_list.append(ref_range)
         blocks_list.append(np.array(blocks))
@@ -237,10 +203,9 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
     final_blocks=final_blocks[np.sum(final_blocks[:, :2],axis=1).argsort(kind='mergesort')]
     
     tmp=final_blocks[:,[0,1]]
-    tmp_len=tmp[:,1]-tmp[:,0]
+    tmp_len=tmp[:,1]-tmp[:,0]+1
     segments=[]
     curr_idx=0
-    current=tmp[curr_idx]
 
     for i in range(1, len(tmp)):
         olp=seg_olp(tmp[i], tmp[curr_idx])
@@ -328,11 +293,11 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
             bp2_intron=True if  tid_col[bp_exon+1]==-1 else False
             
             same_segment=True if final_blocks[gf_l_idx[bp_exon], 16]==final_blocks[gf_l_idx[bp_exon+1], 16] else False
-            gf_output.append([2, (read_name, genes_col[bp_exon:bp_exon+2], (rbp1, rbp2), (bp1, bp2), (str_1, str_2), (mapq1, mapq2), (bp1_intron, bp2_intron), same_segment)])
+            gf_output.append([2, (read_name, genes_col[bp_exon:bp_exon+2], (rbp1, rbp2), (bp1, bp2), (str_1, str_2), (mapq1, mapq2), (bp1_intron, bp2_intron), same_segment, seq)])
             
         return gf_output 
     
-def process(input_queue, output_queue, trans_output_queue, input_event, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only, seq_type="any"):
+def process(input_queue, output_queue, trans_output_queue, input_event, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only):
     
     
     #define interval tree of exons
@@ -346,7 +311,7 @@ def process(input_queue, output_queue, trans_output_queue, input_event, df_array
             read_chunk=input_queue.get(block=False, timeout=10)
             
             for read_info in read_chunk:
-                result= get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only, seq_type)
+                result= get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only)
 
                 for (status, res) in result:
                     if status==1:
@@ -410,7 +375,7 @@ def check_exons(final_blocks, df_array, r_idx, l_idx, gene_id, col_map, trans_ex
     best_exon_ids_final=tuple([next(iter(set(v)&set(split_trans_exon[closest_transcript[0]]['exons']))) if set(v)&set(split_trans_exon[closest_transcript[0]]['exons']) else v[0] for v in best_exon_ids.values()])
     return [match>0, best_exon_ids_final, closest_transcript]
 
-def call_manager(args):
+def call_manager(args, gff_data=None, cl=True):
     bam_path=args.bam
     gff_path=args.gff
     non_coding_path=args.unannotated
@@ -421,10 +386,14 @@ def call_manager(args):
     check_strand=args.check_strand
     include_unannotated=False if non_coding_path==None else True
     gf_only=args.gf_only
-    seq_type=args.seq_type
     
-    df, chrom_map, inv_chrom_map, merged_exon_df, exon_array, col_map,\
+    if cl:
+        df, chrom_map, inv_chrom_map, merged_exon_df, exon_array, col_map,\
 gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, trans_exon_counts_map, get_gene_exons = gff_parse(gff_path, non_coding_path, include_unannotated=include_unannotated)
+        
+    else:
+        df, chrom_map, inv_chrom_map, merged_exon_df, exon_array, col_map,\
+gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, trans_exon_counts_map, get_gene_exons = gff_data
     
     print("Finished reading GFF file.", flush=True)
     
@@ -440,7 +409,7 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
     threads=args.threads
     handlers=[]
     for hid in range(threads):
-        p = mp.Process(target=process, args=(input_queue, output_queue, trans_output_queue, input_event, exon_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only, seq_type))
+        p = mp.Process(target=process, args=(input_queue, output_queue, trans_output_queue, input_event, exon_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only))
         p.start();
         handlers.append(p);
 
@@ -457,10 +426,13 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
 
         if read.reference_name in chrom_map:
             bam_data[read.qname].append([read.qname, read.reference_name, read.cigarstring, read.flag, read.reference_start, read.seq, read.mapq])
-
+    
+    print('{}: Finished Reading BAM File {} {} {}\n'.format(str(datetime.datetime.now()), k, input_queue.qsize(), time.time()-t), flush=True)
+    
     for chunk in split_list(list(bam_data.values()),n=1000):
         input_queue.put(chunk)
-
+        #print('.',end="")
+       
     print('{}: Processing reads. Remaining chunks={}  Time elapsed={}s'.format(str(datetime.datetime.now()), input_queue.qsize(), time.time()-t))
     input_event.set()
 
@@ -480,20 +452,27 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
     
     print("{}: Finished parsing GFs".format(str(datetime.datetime.now())), flush=True)
     
-    with open(os.path.join(output_path, args.prefix+'.read_level.pickle'), 'wb') as handle:
-        print("Saving intermediate Fusion results in: ", os.path.join(output_path, args.prefix+'.read_level.pickle'), flush=True)
-        pickle.dump(output, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    if output_path!=None:
+        with open(os.path.join(output_path, args.prefix+'.read_level.pickle'), 'wb') as handle:
+            print("{}: Saving intermediate Fusion results in: {}".format(str(datetime.datetime.now()), os.path.join(output_path, args.prefix+'.read_level.pickle')), flush=True)
+            pickle.dump(output, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    if not gf_only:
-        raw_exon=[]
-        for x in trans_output_queue:
-            raw_exon.append(x)
+        if not gf_only:
+            raw_exon=[]
+            for x in trans_output_queue:
+                raw_exon.append(x)
 
-        with open(os.path.join(output_path, args.prefix+'.exons.pickle'), 'wb') as handle:
-            print("Saving intermediate exon patterns results in: ", os.path.join(output_path, args.prefix+'.exons.pickle'), flush=True)
-            pickle.dump(raw_exon, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    
-    return total_output, output, gene_id_to_name
+            with open(os.path.join(output_path, args.prefix+'.exons.pickle'), 'wb') as handle:
+                print("{}: Saving intermediate exon patterns results in: {}".format(str(datetime.datetime.now()), os.path.join(output_path, args.prefix+'.exons.pickle')), flush=True)
+                pickle.dump(raw_exon, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        return total_output, output, gene_id_to_name, gene_df
                        
-      
+    else:
+        raw_exon=[]
+        if not gf_only:
+            for x in trans_output_queue:
+                raw_exon.append(x)
+                
+        return total_output, output, gene_id_to_name, gene_df, raw_exon
                        

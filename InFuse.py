@@ -1,4 +1,4 @@
-import os, argparse, sys
+import os, argparse, sys, datetime
 import time
 from src import post_process
 import pickle
@@ -6,6 +6,8 @@ import pandas as pd
 
 if __name__=="__main__":
     t=time.time()
+    
+    print('{}: Starting InFuse.'.format(str(datetime.datetime.now())))
     
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     main_subparsers = parser.add_subparsers(title="Options", dest="option")
@@ -17,6 +19,7 @@ if __name__=="__main__":
     parent_parser.add_argument("--unannotated", help='BED file of unannotated regions', type=str)
     parent_parser.add_argument("--distance_threshold", help='Distance threshold for merging breakpoints', type=int, default=10) 
     parent_parser.add_argument("--min_support", help='Minimum read support for reporting gene fusion', type=int, default=2)
+    parent_parser.add_argument("--ref", help='Reference FASTA file', type=str, default='')
     
     
     detect_parser = main_subparsers.add_parser("detect", parents=[parent_parser],
@@ -25,8 +28,7 @@ if __name__=="__main__":
     
     detect_required=detect_parser.add_argument_group("Required Arguments")
     detect_parser.add_argument("--bam", help='Path to aligned BAM file.', type=str, required=True)
-    detect_parser.add_argument("--seq_type", help='Sequencing type.', type=str, choices=["rna", "cdna"], default="cdna")
-    detect_parser.add_argument("--check_strand", help='Check strand orientation of reads using ply A tail and primers', default=False, action='store_true')
+    detect_parser.add_argument("--check_strand", help='Check strand orientation of reads', default=False, action='store_true')
     detect_parser.add_argument("--threads", help='Number of threads', type=int, default=4)
     detect_parser.add_argument("--gf_only", help='Check gene fusions only', default=False, action='store_true')
      
@@ -35,6 +37,11 @@ if __name__=="__main__":
                                       add_help=True,
                                       help="Merge and filter gene fusions using custom parameters using pre-computed read level pickled files.",  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     merge_filter_parser.add_argument('--pickle', help="Read level pickled files from detect module", required=True)
+    
+    
+    
+    
+    print('Command: python %s\n' %(' '.join(sys.argv)))
     
     args = parser.parse_args()
     
@@ -52,7 +59,7 @@ if __name__=="__main__":
                 
     if args.option=='detect':
         from src import detect
-        total_output, output, gene_id_to_name=detect.call_manager(args)
+        total_output, output, gene_id_to_name, gene_df=detect.call_manager(args)
         
     else:
         with open(args.pickle, 'rb') as handle:
@@ -65,29 +72,25 @@ if __name__=="__main__":
         gene_df=gene_df[gene_df.feature=='gene']
         gene_id_to_name={x:y for x,y in zip(gene_df.gene_id, gene_df.gene_name)}
         
-        
-    final_gf_double_bp, final_gf_single_bp=post_process.get_GFs(output, gene_id_to_name, args.distance_threshold, args.min_support)
+    
+    print('{}: Clustering gene fusions.'.format(str(datetime.datetime.now())))
+    final_gf_double_bp=post_process.get_GFs(output, gene_id_to_name, args.ref, gene_df, args.distance_threshold, args.min_support, args.threads)
+    
+    print('{}: Saving gene fusions results.'.format(str(datetime.datetime.now())))
     
     with open(os.path.join(output_path,args.prefix+'.final_gf_double_bp.pickle'), 'wb') as handle:
         pickle.dump(final_gf_double_bp, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    with open(os.path.join(output_path,args.prefix+'.final_gf_single_bp.pickle'), 'wb') as handle:
-        pickle.dump(final_gf_single_bp, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
     
     header="\t".join(["gene_fusion", "read_support", "num_annotated", "genes_overlap", "consistent", "readthrough", "gene_1_name", "gene_1_id", "chr_bp1", "pos_bp1", "range_bp1", "mapq_bp1", "max_len_bp1", "region_type_bp1", "gene_2_name", "gene_2_id", "chr_bp2", "pos_bp2", "range_bp2", "mapq_bp2", "max_len_bp2", "region_type_bp2"])
     
-    with open(os.path.join(output_path,args.prefix+'.final_gf_double_bp'), 'w') as ann_file, open(os.path.join(output_path,args.prefix+'.final_gf_double_bp.inconsistent'), 'w') as incon_file:
+    with open(os.path.join(output_path,args.prefix+'.final_gf_double_bp'), 'w') as ann_file:
         ann_file.write(header+'\n')
-        incon_file.write(header+'\n')
         
         for k,v in sorted(final_gf_double_bp.items(), key=lambda x: x[1]['read_support'], reverse=True):
             gene_fusion="{}::{}".format(v['median_breakpoint_1'][0], v['median_breakpoint_2'][0])
             read_support, num_annotated, genes_overlap, consistent, readthrough= v['read_support'], v['annotated'], v['genes_overlap'], v['consistent'], v['readthrough']
             rec="\t".join(str(x) for x in [gene_fusion, read_support, num_annotated, genes_overlap, consistent, readthrough, *v['median_breakpoint_1'], *v['median_breakpoint_2']])
-        
-            if v['consistent']:
-                ann_file.write(rec+'\n')
-                
-            else:
-                incon_file.write(rec+'\n')
-                
+            ann_file.write(rec+'\n')
+
     print('Time elapsed={}s'.format(time.time()-t))
