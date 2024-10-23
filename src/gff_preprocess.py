@@ -46,7 +46,9 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
         non_coding_df['strand']="+-"
         non_coding_df['gene_type']="unannotated"
         non_coding_df['gene_id']=non_coding_df['gene_name']
-        non_coding_df['exon_id']=non_coding_df['gene_id']    
+        non_coding_df['exon_id']=non_coding_df['gene_id']
+        non_coding_df['transcript_id']=-1
+        non_coding_df['exon_cid'] = non_coding_df['gene_id'] + non_coding_df['chrom'] + "|"+non_coding_df['start'].astype(str) + "|"+non_coding_df['end'].astype(str)
         
         if check_strand:
             non_coding_df_plus=non_coding_df.copy()
@@ -55,6 +57,7 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
             non_coding_df_plus['gene_name']=non_coding_df_plus['gene_name']+'_plus_strand'
             non_coding_df_minus=non_coding_df.copy()
             non_coding_df_minus['strand']="-"
+            
             non_coding_df_minus['gene_id']=non_coding_df_minus['gene_id']+'_minus_strand'
             non_coding_df_minus['gene_name']=non_coding_df_minus['gene_name']+'_minus_strand'
             
@@ -76,7 +79,9 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
 
     gene_df=df[df.feature=='gene'].copy()
     
+    non_coding_gene_id={}
     if include_unannotated:
+        non_coding_gene_id=set(non_coding_df.gene_id)
         gene_df=pd.concat([gene_df, non_coding_df]).reset_index(drop=True)
         
     gene_df['strand_num']=gene_df['strand'].map(strand_map)
@@ -114,4 +119,4 @@ def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated
     merged_exon_df=merged_exon_df.drop_duplicates('exon_cid')
     exon_array=np.array(merged_exon_df)
     
-    return df, chrom_map, inv_chrom_map, merged_exon_df, exon_array, col_map, gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, trans_exon_counts_map, get_gene_exons
+    return df, chrom_map, inv_chrom_map, merged_exon_df, exon_array, col_map, gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, trans_exon_counts_map, get_gene_exons, non_coding_gene_id
