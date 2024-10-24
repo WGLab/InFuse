@@ -194,6 +194,9 @@ def seg_olp(x,y):
 def get_gene_tuples(gene_list):
     return {tuple(sorted([x,y])) for i, x in enumerate(gene_list) for y in gene_list[i+1:]}
 
+def get_gene_tuples_from_prod(list1, list2):
+    return {tuple(sorted([x,y])) for x,y in itertools.product(list1, list2) if x!=y}
+
 def detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map):
     global block_col_map
     # Determine the best exons for each gene  
@@ -231,7 +234,7 @@ def detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map):
     max_idx = np.where((l_idx == np.max(l_idx))&(final_blocks[l_idx,block_col_map['start_end_mask']]))[0]
     min_dist[max_idx] = dist[max_idx, final_blocks[np.max(l_idx), block_col_map['original_strand']]]
     
-
+        
     # Group by gene_id and block
     cluster_gene_exon = npi.group_by(list(zip(l_idx, df_array[r_idx, col_map['gene_id']])))
     split_gene_exon = cluster_gene_exon.split(np.arange(len(l_idx)))
@@ -243,6 +246,11 @@ def detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map):
     unique_exon_r_idx = r_idx[keep_exons]
     unique_exon_l_idx = l_idx[keep_exons]
     min_dist = min_dist[keep_exons]
+    
+    #segments covered by a single gene shouldn't contribute to distances
+    _,uid,cnts=np.unique(unique_exon_l_idx,return_counts=True, return_index=True)
+    singletons=uid[cnts<2]
+    min_dist[singletons]=0
 
     ## Determine the best genes for the read
     # Calculate the length of read blocks
@@ -261,11 +269,16 @@ def detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map):
     cluster_exon = npi.group_by(unique_exon_l_idx)
     split_exon = cluster_exon.split(np.arange(len(unique_exon_l_idx)))
 
-    # get list of all candidate gene fusion pairs
+    # get list of all contiguous candidate gene fusion pairs
     # discard any pair that overlaps in the same alignment block
     # 
-    gene_list=list(set(df_array[unique_exon_r_idx,col_map['gene_id']]))
-    gene_tuples=get_gene_tuples(gene_list)
+    gene_tuples=set()
+    for k in range(len(split_exon)-1):
+        curr_idx=df_array[unique_exon_r_idx[split_exon[k]]][:,col_map['gene_id']]
+        next_idx=df_array[unique_exon_r_idx[split_exon[k+1]]][:,col_map['gene_id']]
+        pairs=get_gene_tuples_from_prod(curr_idx, next_idx)
+        gene_tuples=gene_tuples.union(pairs)
+
     overlapping_gene_tuples=[get_gene_tuples(df_array[unique_exon_r_idx[l]][:, col_map['gene_id']]) for l in split_exon]
     overlapping_gene_tuples=set.union(*overlapping_gene_tuples)
     candidate_fusions=list(gene_tuples-overlapping_gene_tuples)
@@ -331,7 +344,7 @@ def get_alignment_block_indices(read_info, ncls, df_array, chrom_map, col_map, c
         start_end_mask_list.append(start_end_mask)
         
     if len(blocks_list)==0 or len(seq)==0:
-        return check, None, None, None, None, None, None, None, None
+        return check, 0, len(blocks_list)==0, len(seq)==0, None, None, None, None, None
 
     # combine block information across the alignments
     ref_range_list=np.vstack(ref_range_list).astype(int)
@@ -391,7 +404,7 @@ def get_alignment_block_indices(read_info, ncls, df_array, chrom_map, col_map, c
     r_idx=r_idx[l_idx_sort]
     
     if len(l_idx)==0:
-        return check, None, None, None, None, None, None, None, None
+        return check, 1, None, None, None, final_blocks, None, None, None
     
     gf_l_idx, gf_r_idx=detect_GF_blocks(df_array, final_blocks, l_idx, r_idx, col_map)
     

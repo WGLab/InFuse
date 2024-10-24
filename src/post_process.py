@@ -330,7 +330,7 @@ def process_isoforms(bam, gene_strand_map, raw_exons, get_gene_exons, tr_file_pa
                             k+=1
                             single_transcript_non_repeat_non_skips[gene_id].append((transcript_id, exon_pattern,gx_inds, reads, len(reads)))
                             reads_to_check.append(reads[0])
-                            print('single_transcript non_repeat diff_order')
+                            #print('single_transcript non_repeat diff_order')
 
                     # if exons repeats
                     else:
