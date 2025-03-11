@@ -557,7 +557,7 @@ def get_exon_overlap(read_info, ncls, df_array, col_map, chrom_map, gene_strand_
             
         return gf_output if len(gf_output)>0 else [[0, ()]]
     
-def process(input_queue, output_queue, trans_output_queue, input_event, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only):
+def process(input_queue, output_queue, trans_output_queue, gene_output_queue, input_event, df_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only):
     
     
     #define interval tree of exons
@@ -576,14 +576,23 @@ def process(input_queue, output_queue, trans_output_queue, input_event, df_array
                 for (status, res) in result:
                     if status==1:
                         trans_output_queue.append(res)
+                        read_name, gene_name=[res[-1]], res[0]
+                        gene_output_queue.append((read_name, gene_name))
                     elif status==2:
                         output_queue.append(res)
+                        read_name, gene_name=res[0], list(res[1])
+                        gene_output_queue.append((read_name, gene_name))
                 
         except queue.Empty:
             pass
         
 
-
+def print_gene_ids(gene_output_queue, path):
+    with open(path, 'w') as f:
+        for read, gene_name in gene_output_queue:
+            for g in gene_name:
+                f.write(f'{read}\t{g}\n')
+        
 def call_manager(args, gff_data=None, cl=True):
     bam_path=args.bam
     gff_path=args.gff
@@ -613,12 +622,13 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
     input_queue = pmanager.Queue()
     output_queue = pmanager.list()
     trans_output_queue = pmanager.list()
+    gene_output_queue = pmanager.list()
     input_event=pmanager.Event()
 
     threads=args.threads
     handlers=[]
     for hid in range(threads):
-        p = mp.Process(target=process, args=(input_queue, output_queue, trans_output_queue, input_event, exon_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only))
+        p = mp.Process(target=process, args=(input_queue, output_queue, trans_output_queue, gene_output_queue, input_event, exon_array, col_map, chrom_map, gene_strand_map, trans_exon_counts_map, get_gene_exons, check_strand, gf_only))
         p.start();
         handlers.append(p);
 
@@ -656,7 +666,8 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
         job.join()
 
     print('{}: Read processing finished in={}s'.format(str(datetime.datetime.now()), time.time()-t), flush=True)
-    
+
+    print_gene_ids(gene_output_queue, os.path.join(output_path, args.prefix+'.read_to_gene'))
     total_output, output=parse_GF_output(output_queue, gene_id_to_name, gene_strand_map, inv_chrom_map, inv_strand_map, overlapping_genes)
     
     print("{}: Finished parsing GFs".format(str(datetime.datetime.now())), flush=True)
