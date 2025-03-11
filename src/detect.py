@@ -576,7 +576,7 @@ def process(input_queue, output_queue, trans_output_queue, gene_output_queue, in
                 for (status, res) in result:
                     if status==1:
                         trans_output_queue.append(res)
-                        read_name, gene_name=[res[-1]], res[0]
+                        read_name, gene_name=res[-1], [res[0]]
                         gene_output_queue.append((read_name, gene_name))
                     elif status==2:
                         output_queue.append(res)
