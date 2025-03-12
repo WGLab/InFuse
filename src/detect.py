@@ -605,9 +605,12 @@ def call_manager(args, gff_data=None, cl=True):
     include_unannotated=False if non_coding_path==None else True
     gf_only=args.gf_only
     
+    bam=pysam.AlignmentFile(bam_path, 'rb')
+    bam_ref_list=list(bam.references)
+    
     if cl:
         df, chrom_map, inv_chrom_map, merged_exon_df, exon_array, col_map,\
-gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, trans_exon_counts_map, get_gene_exons, non_coding_gene_id = gff_parse(gff_path, non_coding_path, check_strand, include_unannotated=include_unannotated)
+gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, trans_exon_counts_map, get_gene_exons, non_coding_gene_id = gff_parse(gff_path, non_coding_path, bam_ref_list, check_strand, include_unannotated=include_unannotated)
         
     else:
         df, chrom_map, inv_chrom_map, merged_exon_df, exon_array, col_map,\
@@ -616,7 +619,7 @@ gene_df, gene_id_to_name, gene_strand_map, gene_chrom_map, overlapping_genes, tr
     print("Finished reading GFF file.", flush=True)
     
     t=time.time()
-    bam=pysam.AlignmentFile(bam_path, 'rb')
+    
     
     pmanager = mp.Manager()
     input_queue = pmanager.Queue()

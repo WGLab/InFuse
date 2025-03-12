@@ -47,7 +47,7 @@ def get_pval(seq, ref_list,n=100):
     
     tests=np.array([parasail.sw_striped_sat(s1=''.join(random.sample(seq, len(seq))), s2=ref, open=40, extend=10, matrix=sub_mat).score for i in range(n)])
 
-    return  best_sum_match, best_max_len, best_score, np.mean(tests>=best_score), (best_score-np.mean(tests))/np.std(tests)
+    return  best_sum_match, best_max_len, best_score, np.mean(tests>=best_score), (best_score-np.mean(tests))/np.std(tests+1e-9)
         
 def split_list(l,n=100):
     i=0    

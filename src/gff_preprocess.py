@@ -1,14 +1,17 @@
+import pysam
 import pandas as pd
 import numpy as np
 from ncls import NCLS64
 import numpy_indexed as npi
 
-def gff_parse(gff_path, non_coding_path, check_strand=False, include_unannotated=False):
+def gff_parse(gff_path, non_coding_path, bam_ref_list, check_strand=False, include_unannotated=False):
     strand_map={'+':0,'-':1,'+-':2}
     df=pd.read_csv(gff_path, sep='\t', comment='#', header=None)
     df.rename(columns={0:'chrom', 2:'feature', 3:'start', 4:'end',6:'strand', 8:'info'}, inplace=True)
-
-    chrom_map={x:i+1 for i,x in enumerate(df.chrom.unique())}
+    
+    chrom_list=set(list(df.chrom.unique())+bam_ref_list)
+    chrom_map={x:i+1 for i,x in enumerate(chrom_list)}
+    
     inv_chrom_map={x:y for y,x in chrom_map.items()}
 
     df['gene_id']=df['info'].str.extract(r'gene_id=([^;]+)')[0].str.extract(r"([^.]+)")
